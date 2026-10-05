@@ -614,7 +614,7 @@ def test_reasoning_models_use_max_completion_tokens_and_omit_sampling():
     assert "top_p" not in kwargs
 
 
-def test_gpt4_family_keeps_max_tokens_and_temperature():
+def test_gpt4_family_sends_max_completion_tokens_and_temperature():
     client = _client_returning('{"n": 1}')
     p = OpenAIProvider(client=client)
     p.complete(
@@ -628,9 +628,9 @@ def test_gpt4_family_keeps_max_tokens_and_temperature():
         timeout_seconds=30,
     )
     kwargs = client.chat.completions.create.call_args.kwargs
-    assert kwargs["max_tokens"] == 64
+    assert kwargs["max_completion_tokens"] == 64
     assert kwargs["temperature"] == 0.7
-    assert "max_completion_tokens" not in kwargs
+    assert "max_tokens" not in kwargs
 
 
 def test_reasoning_model_prefixes_are_constructor_overridable():

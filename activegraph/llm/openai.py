@@ -207,7 +207,8 @@ class OpenAIProvider(LLMProvider):
             # / top_p — omit both rather than send a guaranteed 400.
             kwargs["max_completion_tokens"] = int(max_tokens)
         else:
-            kwargs["max_tokens"] = int(max_tokens)
+            # max_tokens is deprecated in favour of max_completion_tokens.
+            kwargs["max_completion_tokens"] = int(max_tokens)
             kwargs["temperature"] = float(temperature)
             if top_p < 1.0:
                 kwargs["top_p"] = float(top_p)
