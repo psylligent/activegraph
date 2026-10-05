@@ -23,6 +23,7 @@ keeps the surface narrow on purpose.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from decimal import Decimal
 from typing import Any, Mapping, Optional
@@ -81,7 +82,8 @@ _NATIVE_STRUCTURED_OUTPUT_PREFIXES: tuple[str, ...] = (
 # Model families that still accept `temperature` / `top_p`. Opus 4.7 and
 # later reject them, Sonnet 5 / 5.5 reject non-default values. anthropic
 # SDK 1.x dropped both keyword arguments (a TypeError), so they travel
-# through `extra_body` and only to these models.
+# through `extra_body` and only to these models. The 4.5 and 4.6 models
+# reject the two together (400), so only one of them is sent.
 _SAMPLING_PARAMS_PREFIXES: tuple[str, ...] = (
     "claude-3",
     "claude-opus-4-0",
@@ -95,6 +97,37 @@ _SAMPLING_PARAMS_PREFIXES: tuple[str, ...] = (
     "claude-sonnet-4-6",
     "claude-haiku-4-5",
 )
+
+
+_log = logging.getLogger("activegraph.llm.anthropic")
+
+# Models already warned about dropped sampling parameters: the default
+# temperature (0.7) would otherwise log on every call.
+_warned_no_sampling: set[str] = set()
+
+
+def _sampling_kwargs(model: str, temperature: float, top_p: float) -> dict[str, Any]:
+    """The sampling parameter for one call, as `extra_body`.
+
+    One parameter at most: `top_p` when it narrows sampling (below 1.0,
+    an explicit choice), otherwise `temperature`. Models outside
+    `_SAMPLING_PARAMS_PREFIXES` reject both, so they get neither; the
+    first non-default value dropped for a model is logged.
+    """
+    if not model.startswith(_SAMPLING_PARAMS_PREFIXES):
+        if (top_p < 1.0 or temperature != 1.0) and model not in _warned_no_sampling:
+            _warned_no_sampling.add(model)
+            _log.warning(
+                "model %s does not accept temperature/top_p; "
+                "temperature=%s top_p=%s not sent",
+                model,
+                temperature,
+                top_p,
+            )
+        return {}
+    if top_p < 1.0:
+        return {"extra_body": {"top_p": float(top_p)}}
+    return {"extra_body": {"temperature": float(temperature)}}
 
 
 class AnthropicProvider(LLMProvider):
@@ -168,12 +201,7 @@ class AnthropicProvider(LLMProvider):
         }
         if system:
             kwargs["system"] = system
-        if model.startswith(_SAMPLING_PARAMS_PREFIXES):
-            sampling: dict[str, float] = {"temperature": float(temperature)}
-            # top_p of 1.0 is the model default; only forward when narrowing.
-            if top_p < 1.0:
-                sampling["top_p"] = float(top_p)
-            kwargs["extra_body"] = sampling
+        kwargs.update(_sampling_kwargs(model, temperature, top_p))
         name_map: Optional[dict[str, str]] = None
         if tools:
             # Anthropic's tools shape: {"name", "description", "input_schema"}.
