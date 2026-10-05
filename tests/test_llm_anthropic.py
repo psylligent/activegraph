@@ -289,3 +289,41 @@ def test_complete_maps_auth_failure_to_auth_error():
             timeout_seconds=30,
         )
     assert exc.value.reason == "llm.auth_error"
+
+
+def _sent_kwargs(model: str, *, temperature: float, top_p: float) -> dict:
+    client = _client_returning("ok")
+    AnthropicProvider(client=client).complete(
+        system="",
+        messages=[LLMMessage(role="user", content="u")],
+        model=model,
+        max_tokens=16,
+        temperature=temperature,
+        top_p=top_p,
+        output_schema=None,
+        timeout_seconds=30,
+    )
+    return client.messages.create.call_args.kwargs
+
+
+def test_sampling_params_travel_in_extra_body_never_as_kwargs():
+    # anthropic SDK 1.x has no temperature/top_p keyword (a TypeError).
+    sent = _sent_kwargs("claude-sonnet-4-5", temperature=0.7, top_p=1.0)
+    assert "temperature" not in sent and "top_p" not in sent
+    assert sent["extra_body"] == {"temperature": 0.7}
+
+
+def test_narrowed_top_p_is_sent_alone():
+    # 4.5 / 4.6 models answer 400 when temperature and top_p come together.
+    sent = _sent_kwargs("claude-haiku-4-5", temperature=0.7, top_p=0.9)
+    assert sent["extra_body"] == {"top_p": 0.9}
+
+
+def test_models_without_sampling_get_neither_param():
+    sent = _sent_kwargs("claude-sonnet-5-5", temperature=0.0, top_p=0.9)
+    assert "extra_body" not in sent
+    assert "temperature" not in sent and "top_p" not in sent
+
+
+def test_default_model_is_sonnet_5_5():
+    assert AnthropicProvider(client=MagicMock()).default_model == "claude-sonnet-5-5"
