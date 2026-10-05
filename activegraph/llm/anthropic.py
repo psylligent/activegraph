@@ -78,11 +78,29 @@ _NATIVE_STRUCTURED_OUTPUT_PREFIXES: tuple[str, ...] = (
     "claude-opus-4-8",
 )
 
+# Model families that still accept `temperature` / `top_p`. Opus 4.7 and
+# later reject them, Sonnet 5 / 5.5 reject non-default values. anthropic
+# SDK 1.x dropped both keyword arguments (a TypeError), so they travel
+# through `extra_body` and only to these models.
+_SAMPLING_PARAMS_PREFIXES: tuple[str, ...] = (
+    "claude-3",
+    "claude-opus-4-0",
+    "claude-opus-4-1",
+    "claude-opus-4-2025",
+    "claude-opus-4-5",
+    "claude-opus-4-6",
+    "claude-sonnet-4-0",
+    "claude-sonnet-4-2025",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5",
+)
+
 
 class AnthropicProvider(LLMProvider):
     # v1.0.2 #1: provider-aware default model. @llm_behavior(model=None)
     # resolves to this string at registration time.
-    default_model: str = "claude-sonnet-4-5"
+    default_model: str = "claude-sonnet-5-5"
 
     def __init__(
         self,
@@ -147,13 +165,15 @@ class AnthropicProvider(LLMProvider):
             "model": model,
             "max_tokens": int(max_tokens),
             "messages": [_message_to_anthropic(m) for m in messages],
-            "temperature": float(temperature),
         }
         if system:
             kwargs["system"] = system
-        # top_p of 1.0 is the model default; only forward when narrowing.
-        if top_p < 1.0:
-            kwargs["top_p"] = float(top_p)
+        if model.startswith(_SAMPLING_PARAMS_PREFIXES):
+            sampling: dict[str, float] = {"temperature": float(temperature)}
+            # top_p of 1.0 is the model default; only forward when narrowing.
+            if top_p < 1.0:
+                sampling["top_p"] = float(top_p)
+            kwargs["extra_body"] = sampling
         name_map: Optional[dict[str, str]] = None
         if tools:
             # Anthropic's tools shape: {"name", "description", "input_schema"}.
